@@ -1,136 +1,101 @@
+import math
 import cv2
-import torch
-import time
-import os
 import numpy as np
-from torchvision.io import read_image
-from torchvision import transforms
-from ultralytics import YOLO
-from DATA_PROCESS.data_transformation import transformations
+from time import time
+import mediapipe as mp
+import matplotlib.pyplot as plt
 
 
-import warnings
-warnings.filterwarnings('ignore')
+# Initializing mediapipe pose class.
+mp_pose = mp.solutions.pose
 
-def classification(model, person_image, device):
-    print("classification starting")
-    model.eval()
-    data_trans = transformations()
-    #img = read_image(path)
-    img = transforms.ToPILImage()(person_image)
-    img = data_trans['validation'](img).to(device)
-    output = model.features(img)
-    output = output.view(-1)
-    output = model.classifier(output)
+# Setting up the Pose function.
+pose = mp_pose.Pose()
 
-    predicted_class = np.argmax(output.detach().cpu().numpy())
+# Initializing mediapipe drawing class, useful for annotation.
+mp_drawing = mp.solutions.drawing_utils 
 
-    probs = torch.nn.functional.softmax(output)
-    #max_prob = torch.max(probs)
-    print(probs)
-    '''if max_prob > 0.6:
-        return predicted_class
-    else:
-        return -100
+# Read an image from the specified path.
+sample_img = cv2.imread('poses/parvatasana.jpg')
+
+# Perform pose detection after converting the image into RGB format.
+results = pose.process(cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB))
+
+# Create a copy of the sample image to draw landmarks on.
+img_copy = sample_img.copy()
+
+# # Check if any landmarks are found.
+# if results.pose_landmarks:
+    
+#     # Draw Pose landmarks on the sample image.
+#     mp_drawing.draw_landmarks(image=img_copy, landmark_list=results.pose_landmarks, connections=mp_pose.POSE_CONNECTIONS)
+       
+#     # Specify a size of the figure.
+#     fig = plt.figure(figsize = [10, 10])
+
+#     # Display the output image with the landmarks drawn, also convert BGR to RGB for display. 
+#     plt.title("Output");plt.axis('off');plt.imshow(img_copy[:,:,::-1]);plt.show()
+
+# 3d layout
+# mp_drawing.plot_landmarks(results.pose_world_landmarks, mp_pose.POSE_CONNECTIONS)
+
+def detectPose(image, pose, display=True):
     '''
-    return predicted_class
-def main():
-
-    if torch.cuda.is_available():
-        device = 'cuda'
-    else:
-        device = 'cpu'
-
-    print(device)
-
-    class_model = torch.load("C:/Users/ankit/Music/suryanamaskar/MODELS/CLASSIFICATION_MODELS_SAVE_DIR/best_model.pt")
-    #del class_model.avg_pool
-    class_model.to(device=device)
-
-
-
-    # Load a pre-trained YOLOv8 model
-    yolo_model = YOLO('C:/Users/ankit/Music/suryanamaskar/MODELS/yolov8m.pt')
-    yolo_model.to(device)
-
-    # Initialize video capture
-    cap = cv2.VideoCapture(0)
-
-    # Define a threshold for considering a person "static"
-    static_threshold = 4
-    # Define the minimum static duration in seconds
-    static_duration = 2
-
-    # Initialize variables for tracking movement
-    previous_box = None
-    previous_center = None
-    static_start_time = None 
-    i = 0
-
-    while True:
-        ret, frame = cap.read()
-
-        results = yolo_model.predict(frame)
-        #print(type(results[0].boxes.cls.cpu().numpy()))
+    This function performs pose detection on an image.
+    Args:
+        image: The input image with a prominent person whose pose landmarks needs to be detected.
+        pose: The pose setup function required to perform the pose detection.
+        display: A boolean value that is if set to true the function displays the original input image, the resultant image, 
+                 and the pose landmarks in 3D plot and returns nothing.
+    Returns:
+        output_image: The input image with the detected pose landmarks drawn.
+        landmarks: A list of detected landmarks converted into their original scale.
+    '''
+    
+    # Create a copy of the input image.
+    output_image = image.copy()
+    
+    # Convert the image from BGR into RGB format.
+    imageRGB = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # Perform the Pose Detection.
+    results = pose.process(imageRGB)
+    
+    # Retrieve the height and width of the input image.
+    height, width, _ = image.shape
+    
+    # Initialize a list to store the detected landmarks.
+    landmarks = []
+    
+    # Check if any landmarks are detected.
+    if results.pose_landmarks:
+    
+        # Draw Pose landmarks on the output image.
+        mp_drawing.draw_landmarks(image=output_image, landmark_list=results.pose_landmarks,
+                                  connections=mp_pose.POSE_CONNECTIONS)
         
-        try:
-        # Check if a person is detected
-            if results[0].boxes.cls.cpu().numpy()[0] == 0:
-                person_data = results[0].boxes
-                # Get the person's bounding box coordinates
-                person_box = person_data.xyxy.cpu().numpy()
-
-                # Calculate the center of the bounding box
-                center_x = (person_box[0][0] + person_box[0][2]) / 2
-                center_y = (person_box[0][1] + person_box[0][3]) / 2
-
-                # Track movement
-                if previous_center is not None:
-                    distance = abs(center_x - previous_center[0]) + abs(center_y - previous_center[1])
-
-                    # Check if the person is static
-                    if distance < static_threshold:
-                        if static_start_time is None:
-                            # Person is becoming static, start timer
-                            static_start_time = time.time()
-                        elif time.time() - static_start_time >= static_duration:
-                            # Person has been static for long enough, save the image
-                            #path = f"person_static_image_{i+1}.jpg"
-                            #cv2.imwrite(f"person_static_image_{i+1}.jpg", frame)
-                            person_image = frame[int(person_box[0][1]):int(person_box[0][3]),
-                                                  int(person_box[0][0]):int(person_box[0][2])]
-                            img_class = classification(model=class_model,person_image = person_image,device = device)
-                            print("classification done")
-                            cv2.putText(person_image,str(img_class), (50, 50), cv2.FONT_HERSHEY_SIMPLEX , 1,  (0, 255, 255),2, cv2.LINE_4)
-                            #os.chdir("C:/Users/ankit/Music/suryanamaskar/Recorded frames")
-                            cv2.imwrite(f"person_static_image_{i+1}.jpg", person_image)
-
-                            #os.chdir("C:/Users/ankit/Music/suryanamaskar")
-                            i += 1
-                            static_start_time = None
-                    else:
-                        # Person moved, reset static timer
-                        static_start_time = None
-
-                # Update previous positions
-                previous_box = person_box
-                previous_center = (center_x, center_y)
+        # Iterate over the detected landmarks.
+        for landmark in results.pose_landmarks.landmark:
             
-        except:
-            print('no image detected')
-        # Display the frame
-        cv2.imshow("Frame", frame)
-
-        # Exit if 'q' key is pressed
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    # Release resources
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-
-
-if __name__ == "__main__":
-    main()
+            # Append the landmark into the list.
+            landmarks.append((int(landmark.x * width), int(landmark.y * height),
+                                  (landmark.z * width)))
+    
+    # Check if the original input image and the resultant image are specified to be displayed.
+    if display:
+    
+        # Display the original input image and the resultant image.
+        plt.figure(figsize=[22,22])
+        plt.subplot(121);plt.imshow(image[:,:,::-1]);plt.title("Original Image");plt.axis('off');
+        plt.subplot(122);plt.imshow(output_image[:,:,::-1]);plt.title("Output Image");plt.axis('off');
+        
+        # Also Plot the Pose landmarks in 3D.
+        mp_drawing.plot_landmarks(results.pose_world_landmarks, mp_pose.POSE_CONNECTIONS)
+        
+    # Otherwise
+    else:
+        
+        # Return the output image and the found landmarks.
+        return output_image, landmarks
+    
+# detectPose(sample_img, pose, display=True)
